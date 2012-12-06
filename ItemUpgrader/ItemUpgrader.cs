@@ -67,7 +67,7 @@ namespace com.peec.itemupgrader
         WoWItem currentItem; // Current item checked.
         WoWCurrency currentHonor, currentConquest, currentJustice, currentValor;
         private WaitTimer lockTimer = new WaitTimer(TimeSpan.FromSeconds(2));
-        WoWItem[] items;
+        List<WoWItem> items;
         private bool currentlyCheckingItemUpgrades = false; // flag for currently in vendor.
 
         
@@ -87,6 +87,7 @@ namespace com.peec.itemupgrader
             foreach (KeyValuePair<string, LuaEventHandlerDelegate> pair in luaEvents)
             {
                 SDebug("Attaching Lua Event: " + pair.Key);
+                Lua.Events.DetachEvent(pair.Key, pair.Value);
                 Lua.Events.AttachEvent(pair.Key, pair.Value);
             }
         }
@@ -132,10 +133,12 @@ namespace com.peec.itemupgrader
             uint[] vendorIds = (Me.IsAlliance ? ID_ALLIANCE_VENDORS : ID_HORDE_VENDORS);
             foreach (uint vendorId in vendorIds)
             {
-                vendorunit = ObjectManager.GetObjectsOfType<WoWUnit>(false, false).FirstOrDefault(
-                    u => u.Entry == vendorId
-                );
-                if (vendorunit != null) continue;
+                if (vendorunit == null)
+                {
+                    vendorunit = ObjectManager.GetObjectsOfType<WoWUnit>(false, false).FirstOrDefault(
+                        u => u.Entry == vendorId
+                    );
+                }
             }
             
             
@@ -158,9 +161,9 @@ namespace com.peec.itemupgrader
 
 
             // Cache some values 
-            items = Me.Inventory.Equipped.Items;
+            items = Me.CarriedItems;
             // Order by highest ilevel first, since thats the items we want to upgrade first.
-            items = items.OrderByDescending(item => item != null ? item.ItemInfo.Level : 0).ToArray();
+            items.OrderByDescending(item => item != null ? item.ItemInfo.Level : 0);
             currentHonor = WoWCurrency.GetCurrencyByType(WoWCurrencyType.HonorPoints);
             currentConquest = WoWCurrency.GetCurrencyByType(WoWCurrencyType.HonorPoints);
             currentJustice = WoWCurrency.GetCurrencyByType(WoWCurrencyType.JusticePoints);
@@ -196,13 +199,15 @@ namespace com.peec.itemupgrader
                     (item.Quality == WoWItemQuality.Epic || item.Quality == WoWItemQuality.Rare))
                 {
 
-                    if (item.IsPvPItem)
+                    // item.IsPvpItem does not work.
+                    if (item.ItemStats.Stats[StatTypes.ResilienceRating] > 0)
                     {
                         switch (item.Quality)
                         {
                             case WoWItemQuality.Rare:
                                 if (!ItemUpgraderSettings.Instance.enableHonor) continue;
                                 if (currentHonor.Amount < UPGRADE_PRICE_HONOR) continue;
+
                                 break;
                             case WoWItemQuality.Epic:
                                 if (!ItemUpgraderSettings.Instance.enableConquest) continue;
@@ -229,7 +234,7 @@ namespace com.peec.itemupgrader
                 }
             }
 
-            SDebug("No items to upgrade at this time due to lack of points or all items upgraded. Awaiting for points / more gear.");
+            SDebug("Checked {0} items, No items to upgrade at this time due to lack of points or all items upgraded. Awaiting for points / more gear.", items.Count);
 
             return null;
         }
@@ -240,18 +245,15 @@ namespace com.peec.itemupgrader
         public void OnOpenVendor(object sender, LuaEventArgs args)
         {
             currentlyCheckingItemUpgrades = true;
-            SDebug("Event: InVendor, Trying to check {0} for upgrades..", currentItem.Name);
-
-            SLog("We got new item to upgrade: {0}. You have enough points + correct gear requirement. Starting procedure.", currentItem.Name);
+            SLog("Event: InVendor: We got new item to upgrade: {0}. You have enough points + correct gear requirement. Starting procedure.", currentItem.Name);
 
             currentItem.PickUp();
-
             Lua.DoString("SetItemUpgradeFromCursorItem()");
-
 
         }
         public void OnVendorClose(object sender, LuaEventArgs args)
         {
+            SDebug("Event: OnVendorClose");
             currentlyCheckingItemUpgrades = false;
         }
 
@@ -279,7 +281,7 @@ namespace com.peec.itemupgrader
 
             if (upgradeAmount < maxAmount)
             {
-
+                
                 Lua.DoString("UpgradeItem()");
 
             }
